@@ -38,7 +38,7 @@ public class UrlController {
         String longUrl = urlService.getOriginalUrl(shortCode);
 
         return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create(longUrl))
+                .location(URI.create(longUrl.trim()))
                 .build();
     }
 }

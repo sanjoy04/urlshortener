@@ -11,11 +11,13 @@ import com.nanourl.urlshortener.model.Url;
 import com.nanourl.urlshortener.repository.UrlRepository;
 import com.nanourl.urlshortener.service.ShortCodeGenerator;
 import com.nanourl.urlshortener.service.UrlService;
+import com.nanourl.urlshortener.util.SnowflakeIdGenerator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Service;
 import lombok.RequiredArgsConstructor;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 
 @Service
@@ -28,15 +30,26 @@ public class UrlServiceImpl implements UrlService {
     private final ShortCodeGenerator shortCodeGenerator;
     private final UrlCacheService cacheService;
     private final AppProperties appProperties;
+    private final SnowflakeIdGenerator idGenerator;
+
+    private static final long DEFAULT_EXPIRY_DAYS = 7;
 
     @Override
     public CreateUrlResponse createShortUrl(CreateUrlRequest request) {
 
+        LocalDateTime expiryDate = request.getExpiryDate();
+
+        if (expiryDate == null) {
+            expiryDate = LocalDateTime.now().plusDays(DEFAULT_EXPIRY_DAYS);
+        }
+
         Url url = new Url();
+        long id = idGenerator.nextId();
+        url.setId(id);
         url.setLongUrl(request.getLongUrl());
         url.setCreatedAt(LocalDateTime.now());
         url.setClickCount(0L);
-        url.setExpiryDate(request.getExpiryDate());
+        url.setExpiryDate(expiryDate);
 
         Url saved = urlRepository.save(url);
 
@@ -45,8 +58,12 @@ public class UrlServiceImpl implements UrlService {
 
         urlRepository.save(saved);
 
+        long ttlSeconds = Duration
+                .between(LocalDateTime.now(), expiryDate)
+                .getSeconds();
+
         try {
-            cacheService.save(shortCode, saved.getLongUrl());
+            cacheService.save(shortCode, saved.getLongUrl(), ttlSeconds);
         } catch (Exception e) {
             LOGGER.warn("Redis unavailable, skipping cache");
         }
@@ -76,8 +93,12 @@ public class UrlServiceImpl implements UrlService {
         url.setClickCount(url.getClickCount() + 1);
         urlRepository.save(url);
 
+        long ttlSeconds = Duration
+                .between(LocalDateTime.now(), url.getExpiryDate())
+                .getSeconds();
+
         try {
-            cacheService.save(shortCode, url.getLongUrl());
+            cacheService.save(shortCode, url.getLongUrl(), ttlSeconds);
         } catch (Exception e) {
             LOGGER.warn("Redis unavailable, skipping cache");
         }
